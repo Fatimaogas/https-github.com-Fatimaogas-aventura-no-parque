@@ -1,0 +1,198 @@
+
+index.html
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Aventura no Parque</title>
+<style>
+body {margin:0;font-family:Arial, sans-serif;background:#a0e9f0;overflow:hidden;}
+#gameCanvas{display:block;margin:0 auto;border:3px solid #333;background-size:cover;}
+#score,#phase,#timer,#dialog{
+  position:absolute;font-size:20px;color:#333;font-weight:bold;padding:5px 10px;background:rgba(255,255,255,0.9);border-radius:8px;
+}
+#score{top:10px;left:10px;}
+#phase{top:10px;right:10px;}
+#timer{bottom:10px;left:10px;}
+#dialog{bottom:50px;left:50%;transform:translateX(-50%);width:400px;font-size:18px;text-align:center;background:rgba(255,255,255,0.95);}
+</style>
+</head>
+<body>
+
+<div id="score">Pontos:0</div>
+<div id="phase">Fase:1</div>
+<div id="timer">Tempo:60</div>
+<div id="dialog"></div>
+<canvas id="gameCanvas" width="800" height="500"></canvas>
+
+<script>
+const canvas=document.getElementById('gameCanvas');
+const ctx=canvas.getContext('2d');
+
+const avatar={x:50,y:400,width:40,height:40,color:'orange',speed:5};
+let score=0,carrying=null,currentPhase=0,timeLeft=60,countdownInterval,particles=[];
+
+const dialogDiv=document.getElementById('dialog');
+
+// Sons
+const sounds={
+  collect:new Audio('https://www.soundjay.com/button/sounds/button-16.mp3'),
+  correct:new Audio('https://www.soundjay.com/button/sounds/button-3.mp3'),
+  wrong:new Audio('https://www.soundjay.com/button/sounds/button-10.mp3'),
+  win:new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3'),
+  animal:new Audio('https://www.soundjay.com/animal/sounds/crow-1.mp3'),
+  narration:new Audio('https://www.soundjay.com/button/sounds/button-09.mp3')
+};
+
+// Fases
+const fases=[
+  { 
+    name:"Parque da Cidade",
+    dialog:"Bem-vindo ao Parque! Vamos recolher o lixo para deixar os animais felizes!",
+    background:'https://i.ibb.co/8gghxPb/parque.png',
+    lixeiras:[
+      {x:700,y:400,width:50,height:50,color:'green',type:'orgânico'},
+      {x:700,y:300,width:50,height:50,color:'blue',type:'reciclável'}
+    ],
+    lixos:[
+      {x:200,y:100,width:30,height:30,color:'brown',type:'orgânico',collected:false},
+      {x:400,y:150,width:30,height:30,color:'gray',type:'reciclável',collected:false}
+    ],
+    pointsToWin:2,
+    time:60
+  },
+  { 
+    name:"Praia Azul",
+    dialog:"A Praia Azul está cheia de lixo! Ajude os peixinhos!",
+    background:'https://i.ibb.co/0jqH1hX/praia.png',
+    lixeiras:[
+      {x:700,y:400,width:50,height:50,color:'blue',type:'plástico'},
+      {x:700,y:300,width:50,height:50,color:'gray',type:'metal'}
+    ],
+    lixos:[
+      {x:200,y:100,width:30,height:30,color:'cyan',type:'plástico',collected:false},
+      {x:400,y:150,width:30,height:30,color:'silver',type:'metal',collected:false},
+      {x:300,y:250,width:30,height:30,color:'cyan',type:'plástico',collected:false}
+    ],
+    pointsToWin:3,
+    time:50
+  },
+  { 
+    name:"Floresta Encantada",
+    dialog:"A Floresta precisa de ajuda! Recolha o lixo para os animais ficarem felizes!",
+    background:'https://i.ibb.co/7rX0gkV/floresta.png',
+    lixeiras:[
+      {x:700,y:400,width:50,height:50,color:'brown',type:'orgânico'},
+      {x:700,y:300,width:50,height:50,color:'green',type:'reciclável'}
+    ],
+    lixos:[
+      {x:200,y:100,width:30,height:30,color:'brown',type:'orgânico',collected:false},
+      {x:400,y:150,width:30,height:30,color:'brown',type:'orgânico',collected:false},
+      {x:300,y:250,width:30,height:30,color:'green',type:'reciclável',collected:false},
+      {x:500,y:200,width:30,height:30,color:'green',type:'reciclável',collected:false}
+    ],
+    pointsToWin:4,
+    time:60
+  }
+];
+
+// Animais animados
+let animals=[
+  {x:100,y:50,dx:1.5,dy:0.5,color:'pink',dialog:"Oi!"},
+  {x:300,y:80,dx:1,dy:0.8,color:'yellow',dialog:"Vamos!"},
+  {x:500,y:60,dx:0.8,dy:1,color:'lightblue',dialog:"Ótimo!"}
+];
+
+// Partículas
+function createParticles(x,y,color){
+  for(let i=0;i<10;i++){
+    particles.push({x:x,y:y,dx:(Math.random()-0.5)*4,dy:(Math.random()-0.5)*4,size:Math.random()*5+2,color:color,life:30});
+  }
+}
+
+// Fase inicial
+let backgroundImg=new Image();
+backgroundImg.src=fases[currentPhase].background;
+
+function startPhase(){
+  timeLeft=fases[currentPhase].time;
+  document.getElementById('phase').innerText=`Fase:${currentPhase+1}`;
+  document.getElementById('timer').innerText=`Tempo:${timeLeft}`;
+  dialogDiv.innerText=fases[currentPhase].dialog;
+  sounds.narration.play();
+  countdownInterval=setInterval(()=>{
+    timeLeft--;
+    document.getElementById('timer').innerText=`Tempo:${timeLeft}`;
+    if(timeLeft<=0){ clearInterval(countdownInterval); alert("Tempo esgotado!"); resetPhase(); }
+  },1000);
+}
+
+function resetPhase(){
+  avatar.x=50; avatar.y=400; carrying=null;
+  fases[currentPhase].lixos.forEach(l=>l.collected=false);
+  score=0;
+  document.getElementById('score').innerText=`Pontos:${score}`;
+  startPhase();
+}
+
+// Desenho
+function drawBackground(){ ctx.drawImage(backgroundImg,0,0,canvas.width,canvas.height); }
+function drawAvatar(){ ctx.fillStyle=avatar.color; let jumpOffset=carrying?Math.sin(Date.now()/100)*5:0; ctx.fillRect(avatar.x,avatar.y-jumpOffset,avatar.width,avatar.height); }
+function drawLixeiras(){ fases[currentPhase].lixeiras.forEach(l=>{ ctx.fillStyle=l.color; ctx.fillRect(l.x,l.y,l.width,l.height); ctx.fillStyle='white'; ctx.font='14px Arial'; ctx.fillText(l.type,l.x+5,l.y+30); }); }
+function drawLixos(){ fases[currentPhase].lixos.forEach(lixo=>{ if(!lixo.collected){ let alpha=0.7+0.3*Math.sin(Date.now()/200); ctx.globalAlpha=alpha; ctx.fillStyle=lixo.color; ctx.fillRect(lixo.x,lixo.y,lixo.width,lixo.height); ctx.globalAlpha=1; } }); }
+function drawAnimals(){ animals.forEach(a=>{ ctx.fillStyle=a.color; ctx.beginPath(); ctx.arc(a.x,a.y,15,0,2*Math.PI); ctx.fill(); a.x+=a.dx; a.y+=a.dy; if(a.x<0||a.x>canvas.width)a.dx*=-1; if(a.y<0||a.y>canvas.height)a.dy*=-1; }); }
+function drawParticles(){ particles.forEach((p,i)=>{ ctx.fillStyle=p.color; ctx.globalAlpha=p.life/30; ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,2*Math.PI); ctx.fill(); ctx.globalAlpha=1; p.x+=p.dx; p.y+=p.dy; p.life--; if(p.life<=0)particles.splice(i,1); }); }
+
+function update(){ ctx.clearRect(0,0,canvas.width,canvas.height); drawBackground(); drawLixeiras(); drawLixos(); drawAvatar(); drawAnimals(); drawParticles(); if(carrying){ carrying.x=avatar.x+avatar.width/2-carrying.width/2; carrying.y=avatar.y-carrying.height-5; } }
+
+// Controles
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowLeft')avatar.x-=avatar.speed;
+  if(e.key==='ArrowRight')avatar.x+=avatar.speed;
+  if(e.key==='ArrowUp')avatar.y-=avatar.speed;
+  if(e.key==='ArrowDown')avatar.y+=avatar.speed;
+
+  avatar.x=Math.max(0,Math.min(canvas.width-avatar.width,avatar.x));
+  avatar.y=Math.max(0,Math.min(canvas.height-avatar.height,avatar.y));
+
+  fases[currentPhase].lixos.forEach(lixo=>{
+    if(!lixo.collected && avatar.x<lixo.x+lixo.width && avatar.x+avatar.width>lixo.x && avatar.y<lixo.y+lixo.height && avatar.y+avatar.height>lixo.y){
+      carrying=lixo; lixo.collected=true; sounds.collect.play();
+    }
+  });
+
+  if(carrying){
+    fases[currentPhase].lixeiras.forEach(l=>{
+      if(avatar.x<l.x+l.width && avatar.x+avatar.width>l.x && avatar.y<l.y+l.height && avatar.y+avatar.height>l.y){
+        if(carrying.type===l.type){ score++; sounds.correct.play(); sounds.animal.play(); createParticles(carrying.x,carrying.y,'gold'); dialogDiv.innerText="Muito bem! Os animais estão felizes!"; }
+        else{ score=Math.max(0,score-1); sounds.wrong.play(); dialogDiv.innerText="Ops! Lixeira errada!";}
+        carrying=null; document.getElementById('score').innerText=`Pontos:${score}`; checkWin();
+      }
+    });
+  }
+});
+
+// Checar fase
+function checkWin(){
+  if(score>=fases[currentPhase].pointsToWin){
+    clearInterval(countdownInterval);
+    sounds.win.play(); createParticles(canvas.width/2,canvas.height/2,'green');
+    if(currentPhase<fases.length-1){
+      alert(`Parabéns! Você completou a fase: ${fases[currentPhase].name}!`);
+      currentPhase++; avatar.x=50; avatar.y=400; carrying=null;
+      backgroundImg.src=fases[currentPhase].background; dialogDiv.innerText=fases[currentPhase].dialog;
+      startPhase();
+    }else{
+      alert("🎉 Parabéns! Você completou todas as fases da Aventura no Parque! 🌳🌊🏖️");
+    }
+  }
+}
+
+// Loop principal
+function gameLoop(){ update(); requestAnimationFrame(gameLoop); }
+backgroundImg.onload=()=>{ startPhase(); gameLoop(); }
+
+</script>
+</body>
+</html>
